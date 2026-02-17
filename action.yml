@@ -55,7 +55,6 @@ runs:
           # GitHub embeds the associated PRs directly in the check_suite event —
           # this is the authoritative association, no API call needed.
           PULL_REQUESTS='${{ toJSON(github.event.check_suite.pull_requests) }}'
-          # Note: these lightweight objects don't include state, so no state filter here
           PR_NUMBER=$(echo "$PULL_REQUESTS" | jq -r '.[0].number // empty')
 
           if [[ -z "$PR_NUMBER" ]]; then
@@ -65,6 +64,18 @@ runs:
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.event.check_suite.head_sha }}/pulls" \
               | jq -r 'map(select(.state == "open")) | .[0].number // empty')
+          else
+            # Embedded PR objects don't include state — verify the PR is still open
+            # to avoid racing with merge events that haven't been processed yet.
+            PR_STATE=$(curl -s \
+              -H "Authorization: token ${{ inputs.github-token }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+              | jq -r '.state // empty')
+            if [[ "$PR_STATE" != "open" ]]; then
+              echo "PR #$PR_NUMBER is $PR_STATE (not open), skipping"
+              exit 0
+            fi
           fi
 
           if [[ -z "$PR_NUMBER" ]]; then

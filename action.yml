@@ -183,6 +183,31 @@ runs:
           exit 0
         fi
 
+        # For non-CI events, also sync the current CI state so reactions
+        # are always up-to-date — even if CI events were missed earlier.
+        if [[ "$EVENT_TYPE" != circleci_* ]]; then
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          if [[ -n "$HEAD_SHA" ]]; then
+            CI_STATE=$(curl -s \
+              -H "Authorization: token ${{ inputs.github-token }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/commits/$HEAD_SHA/status" \
+              | jq -r '
+                [.statuses[] | select(.context | contains("circleci"))] |
+                if length == 0 then "none"
+                elif any(.state == "pending") then "pending"
+                elif any(.state == "failure" or .state == "error") then "failure"
+                else "success"
+                end')
+
+            case "$CI_STATE" in
+              success) EVENT_TYPE="$EVENT_TYPE,circleci_pass" ;;
+              failure) EVENT_TYPE="$EVENT_TYPE,circleci_fail" ;;
+              pending) EVENT_TYPE="$EVENT_TYPE,circleci_running" ;;
+            esac
+          fi
+        fi
+
         echo "Event type: $EVENT_TYPE"
         echo "PR URL: $PR_URL"
 

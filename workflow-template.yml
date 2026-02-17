@@ -1,0 +1,62 @@
+# Copy this file to: .github/workflows/pr-review-reactions.yml
+# in any repo where you want PR review Slack reactions
+
+name: PR Review Slack Reactions
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [closed]
+
+jobs:
+  slack-reaction:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pr-review-bot
+        run: |
+          # Option 1: Install from npm (once published)
+          # npm install -g pr-review-bot
+
+          # Option 2: Install from git URL (for now)
+          git clone https://github.com/YOUR_ORG/pr-review-bot.git /tmp/pr-review-bot
+          cd /tmp/pr-review-bot
+          npm install
+          npm run build
+          npm link
+
+      - name: Determine event type and run bot
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL="${{ github.event.pull_request.html_url }}"
+
+          # Determine event type
+          if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            EVENT_TYPE="merged"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            if [[ "${{ github.event.review.state }}" == "approved" ]]; then
+              EVENT_TYPE="review_approved"
+            elif [[ "${{ github.event.review.state }}" == "commented" ]]; then
+              EVENT_TYPE="review_commented"
+            else
+              echo "Ignoring review state: ${{ github.event.review.state }}"
+              exit 0
+            fi
+          else
+            echo "Ignoring event: ${{ github.event_name }} / ${{ github.event.action }}"
+            exit 0
+          fi
+
+          echo "Event type: $EVENT_TYPE"
+          echo "PR URL: $PR_URL"
+
+          # Run the bot
+          EVENT_TYPE=$EVENT_TYPE PR_URL=$PR_URL pr-review-bot

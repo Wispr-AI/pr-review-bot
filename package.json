@@ -1,0 +1,21 @@
+{
+  "name": "pr-review-bot",
+  "version": "1.0.0",
+  "description": "Slack bot that reacts to PR review messages based on GitHub events",
+  "main": "dist/index.js",
+  "bin": {
+    "pr-review-bot": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@slack/web-api": "^7.0.0",
+    "@octokit/rest": "^20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

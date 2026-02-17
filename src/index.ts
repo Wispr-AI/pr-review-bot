@@ -178,14 +178,6 @@ async function main() {
       continue;
     }
 
-    // Don't downgrade CI from a terminal state back to "running".
-    // Parallel CI jobs race each other; a late-arriving "running" event from one
-    // job should not clobber a "pass" that another job already recorded.
-    if (reactionInfo.emoji === 'circleci' && existingReactions.includes('circleci-pass')) {
-      console.log('CI already passed, ignoring late "running" event to prevent flapping.');
-      continue;
-    }
-
     // Update the reaction state (remove old, add new)
     await updateReactionState(
       SLACK_CHANNEL_ID,

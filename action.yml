@@ -55,7 +55,8 @@ runs:
           # GitHub embeds the associated PRs directly in the check_suite event —
           # this is the authoritative association, no API call needed.
           PULL_REQUESTS='${{ toJSON(github.event.check_suite.pull_requests) }}'
-          PR_NUMBER=$(echo "$PULL_REQUESTS" | jq -r 'map(select(.state == "open")) | .[0].number // empty')
+          # Note: these lightweight objects don't include state, so no state filter here
+          PR_NUMBER=$(echo "$PULL_REQUESTS" | jq -r '.[0].number // empty')
 
           if [[ -z "$PR_NUMBER" ]]; then
             # Fallback: look up by head SHA, but only consider open PRs

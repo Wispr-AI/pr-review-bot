@@ -25,36 +25,41 @@ Reusable bot that automatically adds emoji reactions to PR review requests in Sl
 
 ### 1. Create Slack App
 
+**Option A: From Manifest (Recommended)**
+1. Go to https://api.slack.com/apps
+2. Click **Create New App** → **From an app manifest**
+3. Select your workspace
+4. Copy the contents of `slack-app-manifest.yml` from this repo and paste it
+5. Click **Next** → **Create**
+6. Click **Install to Workspace** → **Allow**
+7. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+
+**Option B: Manual Setup**
 1. Go to https://api.slack.com/apps
 2. Click **Create New App** → **From scratch**
-3. Name: "PR Review Bot"
-4. Select your workspace
+3. Name: "PR Review Bot", select your workspace
+4. Go to **OAuth & Permissions** → **Bot Token Scopes** and add:
+   - `channels:history` - to search for messages
+   - `channels:read` - to list channels
+   - `reactions:write` - to add emoji reactions
+   - `chat:write` - to update messages with PR titles
+5. Click **Install to Workspace** → **Allow**
+6. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
 
-### 2. Add Slack Bot Scopes
+### 2. Invite Bot to Channel
 
-Go to **OAuth & Permissions** → **Bot Token Scopes** and add:
-- `channels:history` - to search for messages
-- `channels:read` - to list channels
-- `reactions:write` - to add emoji reactions
-- `chat:write` - to update messages with PR titles
+In `#03-pr-reviews-product-eng`, type:
+```
+/invite @PR Review Bot
+```
 
-### 3. Install Slack App to Workspace
-
-1. In **OAuth & Permissions**, click **Install to Workspace**
-2. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
-3. Invite the bot to your PR review channel:
-   ```
-   /invite @PR Review Bot
-   ```
-   in `#03-pr-reviews-product-eng`
-
-### 4. Get Slack Channel ID
+### 3. Get Slack Channel ID
 
 1. Right-click on `#03-pr-reviews-product-eng` in Slack
 2. Select **View channel details**
 3. Scroll down and copy the **Channel ID** (e.g., `C07ABC123DEF`)
 
-### 5. Create Slack Workflow (for posting PRs)
+### 4. Create Slack Workflow (for posting PRs)
 
 In `#03-pr-reviews-product-eng`:
 1. Click channel name → **Workflows** → **Create Workflow** → **From scratch**

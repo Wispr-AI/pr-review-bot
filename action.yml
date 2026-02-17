@@ -50,7 +50,22 @@ runs:
         SLACK_CHANNEL_ID: ${{ inputs.slack-channel-id }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        PR_URL="${{ github.event.pull_request.html_url }}"
+        # Extract PR URL based on event type
+        if [[ "${{ github.event_name }}" == "check_suite" ]] || [[ "${{ github.event_name }}" == "status" ]]; then
+          # For check_suite/status events, get PR from commit
+          PR_NUMBERS=$(curl -s -H "Authorization: token ${{ inputs.github-token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.event.check_suite.head_sha || github.sha }}/pulls" \
+            | jq -r '.[0].number // empty')
+
+          if [[ -z "$PR_NUMBERS" ]]; then
+            echo "No PR found for this commit, skipping"
+            exit 0
+          fi
+
+          PR_URL="https://github.com/${{ github.repository }}/pull/$PR_NUMBERS"
+        else
+          PR_URL="${{ github.event.pull_request.html_url }}"
+        fi
 
         # Determine event type
         if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
@@ -68,6 +83,36 @@ runs:
             EVENT_TYPE="review_commented"
           else
             echo "Ignoring review state: ${{ github.event.review.state }}"
+            exit 0
+          fi
+        elif [[ "${{ github.event_name }}" == "check_suite" ]] && [[ "${{ github.event.action }}" == "completed" ]]; then
+          # Check if this is from CircleCI
+          if [[ "${{ github.event.check_suite.app.slug }}" == "circleci" ]]; then
+            if [[ "${{ github.event.check_suite.conclusion }}" == "success" ]]; then
+              EVENT_TYPE="circleci_pass"
+            elif [[ "${{ github.event.check_suite.conclusion }}" == "failure" ]]; then
+              EVENT_TYPE="circleci_fail"
+            else
+              echo "Ignoring check_suite conclusion: ${{ github.event.check_suite.conclusion }}"
+              exit 0
+            fi
+          else
+            echo "Ignoring check_suite from: ${{ github.event.check_suite.app.slug }}"
+            exit 0
+          fi
+        elif [[ "${{ github.event_name }}" == "status" ]]; then
+          # Check if this is from CircleCI (commit status API)
+          if [[ "${{ github.event.context }}" == *"circleci"* ]]; then
+            if [[ "${{ github.event.state }}" == "success" ]]; then
+              EVENT_TYPE="circleci_pass"
+            elif [[ "${{ github.event.state }}" == "failure" ]] || [[ "${{ github.event.state }}" == "error" ]]; then
+              EVENT_TYPE="circleci_fail"
+            else
+              echo "Ignoring status state: ${{ github.event.state }}"
+              exit 0
+            fi
+          else
+            echo "Ignoring status from: ${{ github.event.context }}"
             exit 0
           fi
         else

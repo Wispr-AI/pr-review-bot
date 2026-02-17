@@ -15,6 +15,8 @@ const EMOJI_MAP = {
     review_approved: 'git-approved', // Custom: approved without comments
     review_approved_with_comments: 'approved-with-comments', // Custom: approved with comments
     merged: 'git-merged', // Custom: PR merged
+    circleci_pass: 'circleci-pass', // Custom: CircleCI tests passed
+    circleci_fail: 'circleci-fail', // Custom: CircleCI tests failed
 };
 async function findMessageWithPrUrl(channelId, prUrl) {
     try {

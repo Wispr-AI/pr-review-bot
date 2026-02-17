@@ -6,28 +6,33 @@ const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN!;
 const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID!;
 
 // Event type passed from GitHub Actions
-const EVENT_TYPE = process.env.EVENT_TYPE!; // 'review_commented', 'review_approved', 'review_approved_with_comments', 'merged'
+const EVENT_TYPE = process.env.EVENT_TYPE!;
 const PR_URL = process.env.PR_URL!;
 
 const slackClient = new WebClient(SLACK_BOT_TOKEN);
 
+// Reaction categories - mutually exclusive within each category
+const REACTION_CATEGORIES = {
+  approval: ['speech_balloon', 'approved-with-comments', 'git-approved'],
+  ci: ['circleci', 'circleci-pass', 'circleci-fail'],
+  merge: ['git-merged'],
+};
+
 // Emoji mapping based on PR events
-const EMOJI_MAP: Record<string, string> = {
-  review_commented: 'speech_balloon', // 💬 - review with comments (not approved)
-  review_approved: 'git-approved', // Custom: approved without comments
-  review_approved_with_comments: 'approved-with-comments', // Custom: approved with comments
-  merged: 'git-merged', // Custom: PR merged
-  circleci_pass: 'circleci-pass', // Custom: CircleCI tests passed
-  circleci_fail: 'circleci-fail', // Custom: CircleCI tests failed
+const EMOJI_MAP: Record<string, { emoji: string; category: keyof typeof REACTION_CATEGORIES }> = {
+  review_commented: { emoji: 'speech_balloon', category: 'approval' },
+  review_approved: { emoji: 'git-approved', category: 'approval' },
+  review_approved_with_comments: { emoji: 'approved-with-comments', category: 'approval' },
+  circleci_running: { emoji: 'circleci', category: 'ci' },
+  circleci_pass: { emoji: 'circleci-pass', category: 'ci' },
+  circleci_fail: { emoji: 'circleci-fail', category: 'ci' },
+  merged: { emoji: 'git-merged', category: 'merge' },
 };
 
 async function findMessageWithPrUrl(channelId: string, prUrl: string): Promise<string | null> {
   try {
     console.log(`Searching for PR URL: ${prUrl} in channel: ${channelId}`);
 
-    // Search recent messages in the channel
-    // Note: We'll search the last 100 messages. For high-volume channels,
-    // you might want to maintain a mapping DB instead.
     const result = await slackClient.conversations.history({
       channel: channelId,
       limit: 100,
@@ -38,7 +43,6 @@ async function findMessageWithPrUrl(channelId: string, prUrl: string): Promise<s
       return null;
     }
 
-    // Find message containing the PR URL
     for (const message of result.messages) {
       if (message.text && message.text.includes(prUrl)) {
         console.log(`Found message: ${message.ts}`);
@@ -54,6 +58,24 @@ async function findMessageWithPrUrl(channelId: string, prUrl: string): Promise<s
   }
 }
 
+async function removeReaction(channelId: string, timestamp: string, emoji: string): Promise<void> {
+  try {
+    await slackClient.reactions.remove({
+      channel: channelId,
+      timestamp: timestamp,
+      name: emoji,
+    });
+    console.log(`Removed reaction: ${emoji}`);
+  } catch (error: any) {
+    // Ignore if reaction doesn't exist
+    if (error.data?.error === 'no_reaction') {
+      console.log(`Reaction ${emoji} doesn't exist (already removed)`);
+    } else {
+      console.error(`Error removing reaction ${emoji}:`, error);
+    }
+  }
+}
+
 async function addReaction(channelId: string, timestamp: string, emoji: string): Promise<void> {
   try {
     await slackClient.reactions.add({
@@ -63,7 +85,6 @@ async function addReaction(channelId: string, timestamp: string, emoji: string):
     });
     console.log(`Added reaction: ${emoji}`);
   } catch (error: any) {
-    // Ignore if reaction already exists
     if (error.data?.error === 'already_reacted') {
       console.log(`Reaction ${emoji} already exists`);
     } else {
@@ -73,6 +94,25 @@ async function addReaction(channelId: string, timestamp: string, emoji: string):
   }
 }
 
+async function updateReactionState(
+  channelId: string,
+  timestamp: string,
+  emoji: string,
+  category: keyof typeof REACTION_CATEGORIES
+): Promise<void> {
+  console.log(`Updating ${category} state to: ${emoji}`);
+
+  // Remove all reactions from this category
+  const reactionsToRemove = REACTION_CATEGORIES[category];
+  for (const reactionEmoji of reactionsToRemove) {
+    if (reactionEmoji !== emoji) {
+      await removeReaction(channelId, timestamp, reactionEmoji);
+    }
+  }
+
+  // Add the new reaction
+  await addReaction(channelId, timestamp, emoji);
+}
 
 async function main() {
   console.log('Starting PR Review Bot...');
@@ -87,15 +127,20 @@ async function main() {
     return;
   }
 
-  // Get the appropriate emoji for this event
-  const emoji = EMOJI_MAP[EVENT_TYPE];
-  if (!emoji) {
+  // Get the appropriate emoji and category for this event
+  const reactionInfo = EMOJI_MAP[EVENT_TYPE];
+  if (!reactionInfo) {
     console.log(`Unknown event type: ${EVENT_TYPE}`);
     return;
   }
 
-  // Add the reaction
-  await addReaction(SLACK_CHANNEL_ID, messageTimestamp, emoji);
+  // Update the reaction state (remove old, add new)
+  await updateReactionState(
+    SLACK_CHANNEL_ID,
+    messageTimestamp,
+    reactionInfo.emoji,
+    reactionInfo.category
+  );
 
   console.log('Done!');
 }

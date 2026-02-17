@@ -1,0 +1,23 @@
+# Slack App Manifest for PR Review Bot
+# Use this to create the Slack app at https://api.slack.com/apps
+# Click "Create New App" → "From an app manifest" → paste this YAML
+
+display_information:
+  name: PR Review Bot
+  description: Automatically reacts to PR review messages based on GitHub events
+  background_color: "#2c2d30"
+features:
+  bot_user:
+    display_name: PR Review Bot
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - channels:read
+      - reactions:write
+      - chat:write
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

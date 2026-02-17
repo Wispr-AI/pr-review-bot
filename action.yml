@@ -108,18 +108,35 @@ runs:
         if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
           EVENT_TYPE="merged"
         elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
-          REVIEW_BODY="${{ github.event.review.body }}"
-          if [[ "${{ github.event.review.state }}" == "approved" ]]; then
-            # Check if review has comments
-            if [[ -n "$REVIEW_BODY" ]]; then
+          # Compute approval state from the PR's full review history rather than
+          # the single review event — this avoids downgrading (e.g. a comment after
+          # an approval) and also avoids shell-injection from review body content.
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          REVIEWS=$(curl -s \
+            -H "Authorization: token ${{ inputs.github-token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews")
+
+          # Check each user's latest review to see if any approved
+          HAS_APPROVAL=$(echo "$REVIEWS" | jq '
+            group_by(.user.login) | map(last) | any(.state == "APPROVED")')
+
+          # Check if any human (non-bot) left comments — either a COMMENTED review
+          # or an APPROVED review with a body
+          HAS_HUMAN_COMMENTS=$(echo "$REVIEWS" | jq '
+            any(.user.type == "User" and
+                (.state == "COMMENTED" or (.state == "APPROVED" and .body != "")))')
+
+          if [[ "$HAS_APPROVAL" == "true" ]]; then
+            if [[ "$HAS_HUMAN_COMMENTS" == "true" ]]; then
               EVENT_TYPE="review_approved_with_comments"
             else
               EVENT_TYPE="review_approved"
             fi
-          elif [[ "${{ github.event.review.state }}" == "commented" ]]; then
+          elif [[ "$HAS_HUMAN_COMMENTS" == "true" ]]; then
             EVENT_TYPE="review_commented"
           else
-            echo "Ignoring review state: ${{ github.event.review.state }}"
+            echo "No actionable review state from humans, skipping"
             exit 0
           fi
         elif [[ "${{ github.event_name }}" == "check_suite" ]]; then

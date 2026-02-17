@@ -51,18 +51,43 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         # Extract PR URL based on event type
-        if [[ "${{ github.event_name }}" == "check_suite" ]] || [[ "${{ github.event_name }}" == "status" ]]; then
-          # For check_suite/status events, get PR from commit
-          PR_NUMBERS=$(curl -s -H "Authorization: token ${{ inputs.github-token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.event.check_suite.head_sha || github.sha }}/pulls" \
-            | jq -r '.[0].number // empty')
+        if [[ "${{ github.event_name }}" == "check_suite" ]]; then
+          # GitHub embeds the associated PRs directly in the check_suite event —
+          # this is the authoritative association, no API call needed.
+          PULL_REQUESTS='${{ toJSON(github.event.check_suite.pull_requests) }}'
+          PR_NUMBER=$(echo "$PULL_REQUESTS" | jq -r 'map(select(.state == "open")) | .[0].number // empty')
 
-          if [[ -z "$PR_NUMBERS" ]]; then
-            echo "No PR found for this commit, skipping"
+          if [[ -z "$PR_NUMBER" ]]; then
+            # Fallback: look up by head SHA, but only consider open PRs
+            PR_NUMBER=$(curl -s \
+              -H "Authorization: token ${{ inputs.github-token }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.event.check_suite.head_sha }}/pulls" \
+              | jq -r 'map(select(.state == "open")) | .[0].number // empty')
+          fi
+
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "No open PR found for this commit, skipping"
             exit 0
           fi
 
-          PR_URL="https://github.com/${{ github.repository }}/pull/$PR_NUMBERS"
+          PR_URL="https://github.com/${{ github.repository }}/pull/$PR_NUMBER"
+
+        elif [[ "${{ github.event_name }}" == "status" ]]; then
+          # Status events only carry the commit SHA — look up the open PR for it
+          PR_NUMBER=$(curl -s \
+            -H "Authorization: token ${{ inputs.github-token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.event.sha }}/pulls" \
+            | jq -r 'map(select(.state == "open")) | .[0].number // empty')
+
+          if [[ -z "$PR_NUMBER" ]]; then
+            echo "No open PR found for this commit, skipping"
+            exit 0
+          fi
+
+          PR_URL="https://github.com/${{ github.repository }}/pull/$PR_NUMBER"
+
         else
           PR_URL="${{ github.event.pull_request.html_url }}"
         fi

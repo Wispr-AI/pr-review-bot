@@ -24,7 +24,7 @@ jobs:
           # npm install -g pr-review-bot
 
           # Option 2: Install from git URL (for now)
-          git clone https://github.com/YOUR_ORG/pr-review-bot.git /tmp/pr-review-bot
+          git clone https://github.com/Wispr-AI/pr-review-bot.git /tmp/pr-review-bot
           cd /tmp/pr-review-bot
           npm install
           npm run build

@@ -1,0 +1,76 @@
+name: 'PR Review Slack Reactions'
+description: 'Automatically add emoji reactions to Slack messages when PRs are reviewed, approved, or merged'
+author: 'Wispr AI'
+
+branding:
+  icon: 'message-circle'
+  color: 'blue'
+
+inputs:
+  slack-bot-token:
+    description: 'Slack Bot User OAuth Token (starts with xoxb-)'
+    required: true
+  slack-channel-id:
+    description: 'Slack channel ID where PR reviews are posted'
+    required: true
+  github-token:
+    description: 'GitHub token for API access'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        if [ ! -d "node_modules" ]; then
+          npm ci --prefer-offline --no-audit
+        fi
+
+    - name: Build TypeScript
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        if [ ! -d "dist" ]; then
+          npm run build
+        fi
+
+    - name: Determine event type and run bot
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        SLACK_BOT_TOKEN: ${{ inputs.slack-bot-token }}
+        SLACK_CHANNEL_ID: ${{ inputs.slack-channel-id }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        PR_URL="${{ github.event.pull_request.html_url }}"
+
+        # Determine event type
+        if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
+          EVENT_TYPE="merged"
+        elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+          if [[ "${{ github.event.review.state }}" == "approved" ]]; then
+            EVENT_TYPE="review_approved"
+          elif [[ "${{ github.event.review.state }}" == "commented" ]]; then
+            EVENT_TYPE="review_commented"
+          else
+            echo "Ignoring review state: ${{ github.event.review.state }}"
+            exit 0
+          fi
+        else
+          echo "Ignoring event: ${{ github.event_name }} / ${{ github.event.action }}"
+          exit 0
+        fi
+
+        echo "Event type: $EVENT_TYPE"
+        echo "PR URL: $PR_URL"
+
+        # Run the bot
+        EVENT_TYPE=$EVENT_TYPE PR_URL=$PR_URL node dist/index.js

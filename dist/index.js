@@ -2,21 +2,19 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const web_api_1 = require("@slack/web-api");
-const rest_1 = require("@octokit/rest");
 // Environment variables
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 // Event type passed from GitHub Actions
-const EVENT_TYPE = process.env.EVENT_TYPE; // 'review_commented', 'review_approved', 'merged'
+const EVENT_TYPE = process.env.EVENT_TYPE; // 'review_commented', 'review_approved', 'review_approved_with_comments', 'merged'
 const PR_URL = process.env.PR_URL;
 const slackClient = new web_api_1.WebClient(SLACK_BOT_TOKEN);
-const githubClient = new rest_1.Octokit({ auth: GITHUB_TOKEN });
 // Emoji mapping based on PR events
 const EMOJI_MAP = {
-    review_commented: 'speech_balloon', // 💬
-    review_approved: 'white_check_mark', // ✅
-    merged: 'rocket', // 🚀
+    review_commented: 'speech_balloon', // 💬 - review with comments (not approved)
+    review_approved: 'git-approved', // Custom: approved without comments
+    review_approved_with_comments: 'approved-with-comments', // Custom: approved with comments
+    merged: 'git-merged', // Custom: PR merged
 };
 async function findMessageWithPrUrl(channelId, prUrl) {
     try {
@@ -67,54 +65,6 @@ async function addReaction(channelId, timestamp, emoji) {
         }
     }
 }
-async function getPrTitle(prUrl) {
-    try {
-        // Parse GitHub PR URL: https://github.com/owner/repo/pull/123
-        const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-        if (!match) {
-            console.log('Invalid PR URL format');
-            return null;
-        }
-        const [, owner, repo, pullNumber] = match;
-        const { data: pr } = await githubClient.pulls.get({
-            owner,
-            repo,
-            pull_number: parseInt(pullNumber, 10),
-        });
-        return pr.title;
-    }
-    catch (error) {
-        console.error('Error fetching PR title:', error);
-        return null;
-    }
-}
-async function updateMessageWithPrTitle(channelId, timestamp, prUrl, prTitle) {
-    try {
-        // Fetch the original message
-        const result = await slackClient.conversations.history({
-            channel: channelId,
-            latest: timestamp,
-            limit: 1,
-            inclusive: true,
-        });
-        if (!result.messages || result.messages.length === 0) {
-            console.log('Could not fetch original message');
-            return;
-        }
-        const originalText = result.messages[0].text || '';
-        // Replace the PR URL with a formatted link
-        const updatedText = originalText.replace(prUrl, `<${prUrl}|${prTitle}>`);
-        await slackClient.chat.update({
-            channel: channelId,
-            ts: timestamp,
-            text: updatedText,
-        });
-        console.log(`Updated message with PR title: ${prTitle}`);
-    }
-    catch (error) {
-        console.error('Error updating message:', error);
-    }
-}
 async function main() {
     console.log('Starting PR Review Bot...');
     console.log(`Event type: ${EVENT_TYPE}`);
@@ -133,13 +83,6 @@ async function main() {
     }
     // Add the reaction
     await addReaction(SLACK_CHANNEL_ID, messageTimestamp, emoji);
-    // Optionally fetch and update with PR title (only on first event)
-    if (EVENT_TYPE === 'review_commented' || EVENT_TYPE === 'review_approved') {
-        const prTitle = await getPrTitle(PR_URL);
-        if (prTitle) {
-            await updateMessageWithPrTitle(SLACK_CHANNEL_ID, messageTimestamp, PR_URL, prTitle);
-        }
-    }
     console.log('Done!');
 }
 main().catch((error) => {

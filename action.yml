@@ -56,8 +56,14 @@ runs:
         if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.event.action }}" == "closed" ]] && [[ "${{ github.event.pull_request.merged }}" == "true" ]]; then
           EVENT_TYPE="merged"
         elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+          REVIEW_BODY="${{ github.event.review.body }}"
           if [[ "${{ github.event.review.state }}" == "approved" ]]; then
-            EVENT_TYPE="review_approved"
+            # Check if review has comments
+            if [[ -n "$REVIEW_BODY" ]]; then
+              EVENT_TYPE="review_approved_with_comments"
+            else
+              EVENT_TYPE="review_approved"
+            fi
           elif [[ "${{ github.event.review.state }}" == "commented" ]]; then
             EVENT_TYPE="review_commented"
           else

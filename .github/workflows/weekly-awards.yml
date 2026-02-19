@@ -1,0 +1,41 @@
+name: Weekly PR Awards
+
+on:
+  schedule:
+    # Saturday 01:00 UTC = Friday 5 PM PT (covers both PST and PDT)
+    # PDT (summer): 5 PM PT = 00:00 UTC → fires at 6 PM PT
+    # PST (winter): 5 PM PT = 01:00 UTC → fires at 5 PM PT exactly
+    # Adjust if your team is in a different timezone
+    - cron: '0 1 * * 6'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Log message to stdout instead of posting to Slack'
+        type: boolean
+        default: true
+
+jobs:
+  post-awards:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Post weekly awards
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          GITHUB_TOKEN: ${{ secrets.AWARDS_GITHUB_PAT }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry-run }}
+        run: node dist/weekly-awards.js

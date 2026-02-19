@@ -114,8 +114,8 @@ async function gatherRepoStats(ownerRepo, sinceDate) {
             pull_number: pr.number,
             per_page: 100,
         });
-        // Deduplicate: track which reviewers we've already credited for this PR
-        const creditedReviewers = new Set();
+        // Group reviews by user: only credit if they approved OR left 2+ comment reviews
+        const reviewsByUser = new Map();
         for (const review of reviews.data) {
             const reviewer = review.user?.login;
             if (!reviewer)
@@ -124,9 +124,15 @@ async function gatherRepoStats(ownerRepo, sinceDate) {
                 continue; // skip bots
             if (reviewer === prAuthor)
                 continue; // skip self-reviews
-            if (creditedReviewers.has(reviewer))
-                continue; // one credit per PR
-            creditedReviewers.add(reviewer);
+            const states = reviewsByUser.get(reviewer) ?? [];
+            states.push(review.state);
+            reviewsByUser.set(reviewer, states);
+        }
+        for (const [reviewer, states] of reviewsByUser) {
+            const hasApproval = states.includes('APPROVED');
+            const commentCount = states.filter((s) => s === 'COMMENTED').length;
+            if (!hasApproval && commentCount < 2)
+                continue; // not a meaningful review
             const stats = getOrCreateStats(reviewerStats, reviewer);
             stats.prsReviewed.add(prKey);
             stats.linesReviewed += prLines;

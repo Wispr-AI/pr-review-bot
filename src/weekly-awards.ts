@@ -11,7 +11,7 @@ const DRY_RUN = process.env.DRY_RUN === 'true';
 // ── Configuration ──────────────────────────────────────────
 
 // Repos to scan for PR activity (owner/repo format)
-const REPOS: string[] = [
+export const REPOS: string[] = [
   'Wispr-AI/aria-flow',
 ];
 
@@ -28,6 +28,7 @@ const GITHUB_TO_SLACK: Record<string, string> = {
   'mark-wispr': '',      // Mark Bennett — TODO: add Slack user ID
   'rajat-wispr': '',     // Rajat — TODO: add Slack user ID
   'shubh-wispr': '',     // Shubh Patni — TODO: add Slack user ID
+  'annabel-wispr': '',   // Annabel — TODO: add Slack user ID
   // Could not find GitHub accounts for: Malhar Singh, Saujas Nandi
 };
 
@@ -37,7 +38,7 @@ const octokit = new Octokit({ auth: GITHUB_TOKEN });
 
 // ── Types ──────────────────────────────────────────────────
 
-interface ReviewerStats {
+export interface ReviewerStats {
   prsReviewed: Set<string>;    // "owner/repo#number" keys for dedup
   commentCount: number;
   commentPrs: Set<string>;     // PRs where they left comments
@@ -45,7 +46,7 @@ interface ReviewerStats {
   linesPrs: Set<string>;       // PRs contributing to lines count (for dedup)
 }
 
-interface RepoStats {
+export interface RepoStats {
   reviewerStats: Map<string, ReviewerStats>;
   mergedCount: number;
   totalComments: number;
@@ -68,11 +69,11 @@ function getOrCreateStats(map: Map<string, ReviewerStats>, username: string): Re
   return stats;
 }
 
-function formatNumber(n: number): string {
+export function formatNumber(n: number): string {
   return n.toLocaleString('en-US');
 }
 
-function formatDateRange(since: Date, until: Date): string {
+export function formatDateRange(since: Date, until: Date): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const sinceMonth = months[since.getMonth()];
@@ -113,7 +114,7 @@ async function fetchAllPages<T>(
 
 // ── Data Gathering ─────────────────────────────────────────
 
-async function gatherRepoStats(ownerRepo: string, sinceDate: string): Promise<RepoStats> {
+export async function gatherRepoStats(ownerRepo: string, sinceDate: string): Promise<RepoStats> {
   const [owner, repo] = ownerRepo.split('/');
   const reviewerStats = new Map<string, ReviewerStats>();
   let totalComments = 0;
@@ -139,7 +140,11 @@ async function gatherRepoStats(ownerRepo: string, sinceDate: string): Promise<Re
   console.log(`  Found ${mergedPRs.length} PRs merged since ${sinceDate}`);
 
   // 2. For each merged PR, fetch detail + reviews and attribute stats
-  for (const pr of mergedPRs) {
+  for (let i = 0; i < mergedPRs.length; i++) {
+    const pr = mergedPRs[i];
+    if (mergedPRs.length > 10 && (i + 1) % 10 === 0) {
+      console.log(`  Processing PRs... ${i + 1}/${mergedPRs.length}`);
+    }
     const prKey = `${ownerRepo}#${pr.number}`;
     const prAuthor = pr.user?.login;
 
@@ -180,7 +185,10 @@ async function gatherRepoStats(ownerRepo: string, sinceDate: string): Promise<Re
     }
   }
 
+  console.log(`  Processing PRs... done`);
+
   // 3. Fetch review comments for the time window
+  console.log(`  Fetching review comments...`);
   const comments = await fetchAllPages((page) =>
     octokit.rest.pulls.listReviewCommentsForRepo({
       owner, repo,
@@ -220,7 +228,7 @@ async function gatherRepoStats(ownerRepo: string, sinceDate: string): Promise<Re
 
 // ── Aggregation ────────────────────────────────────────────
 
-function mergeStats(allRepoStats: RepoStats[]): {
+export function mergeStats(allRepoStats: RepoStats[]): {
   global: Map<string, ReviewerStats>;
   totalMerged: number;
   totalComments: number;
@@ -284,7 +292,7 @@ function pickWinner(
 
 // ── Message Formatting ─────────────────────────────────────
 
-function formatMessage(
+export function formatMessage(
   global: Map<string, ReviewerStats>,
   totalMerged: number,
   totalComments: number,
@@ -398,6 +406,12 @@ async function main() {
   }
 
   // Post to Slack
+  if (!SLACK_BOT_TOKEN || !SLACK_CHANNEL_ID) {
+    console.error('Error: SLACK_BOT_TOKEN and SLACK_CHANNEL_ID are required to post to Slack.');
+    console.error('To preview without posting, set DRY_RUN=true or use: npm run preview:awards');
+    process.exit(1);
+  }
+
   console.log('Posting awards to Slack...');
   await slackClient.chat.postMessage({
     channel: SLACK_CHANNEL_ID,
@@ -407,7 +421,9 @@ async function main() {
   console.log('Done! Awards posted.');
 }
 
-main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}

@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.REPOS = void 0;
+exports.formatNumber = formatNumber;
+exports.formatDateRange = formatDateRange;
+exports.gatherRepoStats = gatherRepoStats;
+exports.mergeStats = mergeStats;
+exports.formatMessage = formatMessage;
 const web_api_1 = require("@slack/web-api");
 const rest_1 = require("@octokit/rest");
 // ── Environment variables ──────────────────────────────────
@@ -10,7 +16,7 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const DRY_RUN = process.env.DRY_RUN === 'true';
 // ── Configuration ──────────────────────────────────────────
 // Repos to scan for PR activity (owner/repo format)
-const REPOS = [
+exports.REPOS = [
     'Wispr-AI/aria-flow',
 ];
 // GitHub username → Slack user ID mapping for @mentions
@@ -26,6 +32,7 @@ const GITHUB_TO_SLACK = {
     'mark-wispr': '', // Mark Bennett — TODO: add Slack user ID
     'rajat-wispr': '', // Rajat — TODO: add Slack user ID
     'shubh-wispr': '', // Shubh Patni — TODO: add Slack user ID
+    'annabel-wispr': '', // Annabel — TODO: add Slack user ID
     // Could not find GitHub accounts for: Malhar Singh, Saujas Nandi
 };
 // ── Clients ────────────────────────────────────────────────
@@ -100,7 +107,11 @@ async function gatherRepoStats(ownerRepo, sinceDate) {
     const mergedPRs = closedPRs.filter((pr) => pr.merged_at && pr.merged_at >= sinceDate);
     console.log(`  Found ${mergedPRs.length} PRs merged since ${sinceDate}`);
     // 2. For each merged PR, fetch detail + reviews and attribute stats
-    for (const pr of mergedPRs) {
+    for (let i = 0; i < mergedPRs.length; i++) {
+        const pr = mergedPRs[i];
+        if (mergedPRs.length > 10 && (i + 1) % 10 === 0) {
+            console.log(`  Processing PRs... ${i + 1}/${mergedPRs.length}`);
+        }
         const prKey = `${ownerRepo}#${pr.number}`;
         const prAuthor = pr.user?.login;
         // pulls.list doesn't return additions/deletions — fetch the full PR
@@ -139,7 +150,9 @@ async function gatherRepoStats(ownerRepo, sinceDate) {
             stats.linesPrs.add(prKey);
         }
     }
+    console.log(`  Processing PRs... done`);
     // 3. Fetch review comments for the time window
+    console.log(`  Fetching review comments...`);
     const comments = await fetchAllPages((page) => octokit.rest.pulls.listReviewCommentsForRepo({
         owner, repo,
         since: sinceDate,
@@ -255,16 +268,16 @@ function formatMessage(global, totalMerged, totalComments, since, until) {
 // ── Main ───────────────────────────────────────────────────
 async function main() {
     console.log('Starting Weekly PR Awards...');
-    if (REPOS.length === 0) {
+    if (exports.REPOS.length === 0) {
         console.error('No repos configured. Add repos to the REPOS array in src/weekly-awards.ts');
         process.exit(1);
     }
     const now = new Date();
     const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const sinceDate = since.toISOString();
-    console.log(`Scanning ${REPOS.length} repos for activity since ${sinceDate}`);
+    console.log(`Scanning ${exports.REPOS.length} repos for activity since ${sinceDate}`);
     // Gather stats from all repos in parallel
-    const results = await Promise.allSettled(REPOS.map((repo) => gatherRepoStats(repo, sinceDate)));
+    const results = await Promise.allSettled(exports.REPOS.map((repo) => gatherRepoStats(repo, sinceDate)));
     const successfulStats = [];
     const failedRepos = [];
     results.forEach((result, i) => {
@@ -272,8 +285,8 @@ async function main() {
             successfulStats.push(result.value);
         }
         else {
-            console.error(`Failed to scan ${REPOS[i]}:`, result.reason);
-            failedRepos.push(REPOS[i]);
+            console.error(`Failed to scan ${exports.REPOS[i]}:`, result.reason);
+            failedRepos.push(exports.REPOS[i]);
         }
     });
     if (successfulStats.length === 0) {
@@ -294,6 +307,11 @@ async function main() {
         return;
     }
     // Post to Slack
+    if (!SLACK_BOT_TOKEN || !SLACK_CHANNEL_ID) {
+        console.error('Error: SLACK_BOT_TOKEN and SLACK_CHANNEL_ID are required to post to Slack.');
+        console.error('To preview without posting, set DRY_RUN=true or use: npm run preview:awards');
+        process.exit(1);
+    }
     console.log('Posting awards to Slack...');
     await slackClient.chat.postMessage({
         channel: SLACK_CHANNEL_ID,
@@ -301,7 +319,9 @@ async function main() {
     });
     console.log('Done! Awards posted.');
 }
-main().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-});
+if (require.main === module) {
+    main().catch((error) => {
+        console.error('Fatal error:', error);
+        process.exit(1);
+    });
+}

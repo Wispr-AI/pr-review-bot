@@ -11,29 +11,6 @@ import {
   RepoStats,
 } from './weekly-awards';
 
-function printLeaderboard(
-  title: string,
-  stats: Map<string, ReviewerStats>,
-  metric: (s: ReviewerStats) => number,
-  format: (s: ReviewerStats) => string,
-): void {
-  console.log(`  ${title}:`);
-
-  const sorted = [...stats.entries()]
-    .filter(([, s]) => metric(s) > 0)
-    .sort((a, b) => metric(b[1]) - metric(a[1]));
-
-  if (sorted.length === 0) {
-    console.log('    (no activity)');
-  } else {
-    sorted.forEach(([username, s], i) => {
-      const marker = i === 0 ? '>>>' : '   ';
-      console.log(`    ${marker} ${i + 1}. @${username} — ${format(s)}`);
-    });
-  }
-  console.log('');
-}
-
 async function main() {
   if (!process.env.GITHUB_TOKEN) {
     console.error('Error: GITHUB_TOKEN environment variable is required.');
@@ -92,21 +69,23 @@ async function main() {
   }
   console.log('');
 
-  // Heavy Lifter (single award)
-  printLeaderboard(
-    'Heavy Lifter (lines reviewed)',
-    global,
-    (s) => s.linesReviewed,
-    (s) => `${formatNumber(s.linesReviewed)} lines across ${s.linesPrs.size} PRs`,
-  );
-
-  // Most Comments (single award)
-  printLeaderboard(
-    'Most Comments (review comments)',
+  // Top 3 Commenters
+  const topCommenters = rankBy(
     global,
     (s) => s.commentCount,
-    (s) => `${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs`,
-  );
+    (s) => s.commentPrs.size,
+  ).slice(0, 3);
+
+  console.log(`  Top Commenters (review comments):`);
+  if (topCommenters.length === 0) {
+    console.log('    (no activity)');
+  } else {
+    topCommenters.forEach(({ username, stats: s }, i) => {
+      const marker = i === 0 ? '>>>' : '   ';
+      console.log(`    ${marker} ${i + 1}. @${username} — ${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs`);
+    });
+  }
+  console.log('');
 
   console.log(`  Team Stats: ${formatNumber(totalMerged)} PRs merged, ${formatNumber(totalComments)} review comments`);
 

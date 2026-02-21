@@ -42,8 +42,6 @@ export interface ReviewerStats {
   prsReviewed: Set<string>;    // "owner/repo#number" keys for dedup
   commentCount: number;
   commentPrs: Set<string>;     // PRs where they left comments
-  linesReviewed: number;
-  linesPrs: Set<string>;       // PRs contributing to lines count (for dedup)
 }
 
 export interface RepoStats {
@@ -61,8 +59,6 @@ function getOrCreateStats(map: Map<string, ReviewerStats>, username: string): Re
       prsReviewed: new Set(),
       commentCount: 0,
       commentPrs: new Set(),
-      linesReviewed: 0,
-      linesPrs: new Set(),
     };
     map.set(username, stats);
   }
@@ -154,13 +150,6 @@ export async function gatherRepoStats(ownerRepo: string, sinceDate: string): Pro
     const prKey = `${ownerRepo}#${pr.number}`;
     const prAuthor = pr.user?.login;
 
-    // pulls.list doesn't return additions/deletions — fetch the full PR
-    const { data: prDetail } = await octokit.rest.pulls.get({
-      owner, repo,
-      pull_number: pr.number,
-    });
-    const prLines = (prDetail.additions ?? 0) + (prDetail.deletions ?? 0);
-
     const reviews = await octokit.rest.pulls.listReviews({
       owner, repo,
       pull_number: pr.number,
@@ -186,8 +175,6 @@ export async function gatherRepoStats(ownerRepo: string, sinceDate: string): Pro
 
       const stats = getOrCreateStats(reviewerStats, reviewer);
       stats.prsReviewed.add(prKey);
-      stats.linesReviewed += prLines;
-      stats.linesPrs.add(prKey);
     }
   }
 
@@ -252,14 +239,6 @@ export function mergeStats(allRepoStats: RepoStats[]): {
       for (const pr of stats.prsReviewed) g.prsReviewed.add(pr);
       g.commentCount += stats.commentCount;
       for (const pr of stats.commentPrs) g.commentPrs.add(pr);
-      for (const pr of stats.linesPrs) {
-        if (!g.linesPrs.has(pr)) {
-          g.linesPrs.add(pr);
-          // Only add lines once per PR globally (in case of cross-repo duplication edge)
-        }
-      }
-      // Lines are additive across repos since each repo's PRs are distinct
-      g.linesReviewed += stats.linesReviewed;
     }
   }
 
@@ -285,15 +264,6 @@ export function rankBy(
     });
 }
 
-function pickWinner(
-  stats: Map<string, ReviewerStats>,
-  metric: (s: ReviewerStats) => number,
-  tiebreak: (s: ReviewerStats) => number,
-): { username: string; stats: ReviewerStats } | null {
-  const sorted = rankBy(stats, metric, tiebreak);
-  return sorted.length > 0 ? sorted[0] : null;
-}
-
 // ── Message Formatting ─────────────────────────────────────
 
 export function formatMessage(
@@ -311,20 +281,14 @@ export function formatMessage(
     (s) => s.commentCount,
   ).slice(0, 3);
 
-  const mostComments = pickWinner(
+  const topCommenters = rankBy(
     global,
     (s) => s.commentCount,
     (s) => s.commentPrs.size,
-  );
-
-  const heavyLifter = pickWinner(
-    global,
-    (s) => s.linesReviewed,
-    (s) => s.linesPrs.size,
-  );
+  ).slice(0, 3);
 
   // Check if there's any activity at all
-  if (topReviewers.length === 0 && !mostComments && !heavyLifter) {
+  if (topReviewers.length === 0 && topCommenters.length === 0) {
     return `:desert_island: *Weekly PR Review Awards — Week of ${dateRange}*\n\n` +
       `It was a quiet week — no PR reviews to report. Enjoy the downtime!`;
   }
@@ -342,15 +306,13 @@ export function formatMessage(
     }
   }
 
-  if (heavyLifter) {
+  if (topCommenters.length > 0) {
     lines.push('');
-    const s = heavyLifter.stats;
-    lines.push(`:weight_lifter: *Heavy Lifter:* ${slackMention(heavyLifter.username)} (${formatNumber(s.linesReviewed)} lines reviewed across ${s.linesPrs.size} PRs)`);
-  }
-
-  if (mostComments) {
-    const s = mostComments.stats;
-    lines.push(`:speech_balloon: *Most Comments:* ${slackMention(mostComments.username)} (${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs)`);
+    lines.push(`:speech_balloon: *Top Commenters:*`);
+    for (let i = 0; i < topCommenters.length; i++) {
+      const { username, stats: s } = topCommenters[i];
+      lines.push(`${medals[i]} ${slackMention(username)} — ${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs`);
+    }
   }
 
   lines.push('');

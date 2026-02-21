@@ -77,12 +77,14 @@ function slackMention(githubUsername) {
     console.warn(`No Slack mapping for GitHub user: ${githubUsername}`);
     return `@${githubUsername}`;
 }
-async function fetchAllPages(apiCall, maxPages = 30) {
+async function fetchAllPages(apiCall, { maxPages = 30, shouldStop } = {}) {
     const results = [];
     for (let page = 1; page <= maxPages; page++) {
         const response = await apiCall(page);
         results.push(...response.data);
         if (response.data.length < 100)
+            break;
+        if (shouldStop?.(response.data))
             break;
     }
     if (results.length >= maxPages * 100) {
@@ -104,7 +106,10 @@ async function gatherRepoStats(ownerRepo, sinceDate) {
         direction: 'desc',
         per_page: 100,
         page,
-    }));
+    }), {
+        // Stop once every PR on a page was updated before our window
+        shouldStop: (page) => page.every((pr) => pr.updated_at < sinceDate),
+    });
     const mergedPRs = closedPRs.filter((pr) => pr.merged_at && pr.merged_at >= sinceDate);
     console.log(`  Found ${mergedPRs.length} PRs merged since ${sinceDate}`);
     // 2. For each merged PR, fetch detail + reviews and attribute stats

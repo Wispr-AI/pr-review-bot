@@ -98,13 +98,14 @@ function slackMention(githubUsername: string): string {
 
 async function fetchAllPages<T>(
   apiCall: (page: number) => Promise<{ data: T[] }>,
-  maxPages = 30,
+  { maxPages = 30, shouldStop }: { maxPages?: number; shouldStop?: (page: T[]) => boolean } = {},
 ): Promise<T[]> {
   const results: T[] = [];
   for (let page = 1; page <= maxPages; page++) {
     const response = await apiCall(page);
     results.push(...response.data);
     if (response.data.length < 100) break;
+    if (shouldStop?.(response.data)) break;
   }
   if (results.length >= maxPages * 100) {
     console.warn(`Hit pagination cap (${maxPages} pages). Some data may be missing.`);
@@ -122,15 +123,20 @@ export async function gatherRepoStats(ownerRepo: string, sinceDate: string): Pro
   console.log(`Scanning ${ownerRepo}...`);
 
   // 1. Fetch recently updated closed PRs, filter to merged within our window
-  const closedPRs = await fetchAllPages((page) =>
-    octokit.rest.pulls.list({
-      owner, repo,
-      state: 'closed',
-      sort: 'updated',
-      direction: 'desc',
-      per_page: 100,
-      page,
-    }),
+  const closedPRs = await fetchAllPages(
+    (page) =>
+      octokit.rest.pulls.list({
+        owner, repo,
+        state: 'closed',
+        sort: 'updated',
+        direction: 'desc',
+        per_page: 100,
+        page,
+      }),
+    {
+      // Stop once every PR on a page was updated before our window
+      shouldStop: (page) => page.every((pr) => pr.updated_at < sinceDate),
+    },
   );
 
   const mergedPRs = closedPRs.filter((pr) =>

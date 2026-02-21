@@ -98,7 +98,7 @@ function slackMention(githubUsername: string): string {
 
 async function fetchAllPages<T>(
   apiCall: (page: number) => Promise<{ data: T[] }>,
-  maxPages = 10,
+  maxPages = 30,
 ): Promise<T[]> {
   const results: T[] = [];
   for (let page = 1; page <= maxPages; page++) {
@@ -260,34 +260,32 @@ export function mergeStats(allRepoStats: RepoStats[]): {
   return { global, totalMerged, totalComments };
 }
 
-// ── Winner Selection ───────────────────────────────────────
+// ── Ranking & Winner Selection ─────────────────────────────
+
+export function rankBy(
+  stats: Map<string, ReviewerStats>,
+  metric: (s: ReviewerStats) => number,
+  tiebreak: (s: ReviewerStats) => number,
+): { username: string; stats: ReviewerStats }[] {
+  return [...stats.entries()]
+    .filter(([, s]) => metric(s) > 0)
+    .map(([username, s]) => ({ username, stats: s }))
+    .sort((a, b) => {
+      const diff = metric(b.stats) - metric(a.stats);
+      if (diff !== 0) return diff;
+      const tbDiff = tiebreak(b.stats) - tiebreak(a.stats);
+      if (tbDiff !== 0) return tbDiff;
+      return a.username.localeCompare(b.username);
+    });
+}
 
 function pickWinner(
   stats: Map<string, ReviewerStats>,
   metric: (s: ReviewerStats) => number,
   tiebreak: (s: ReviewerStats) => number,
 ): { username: string; stats: ReviewerStats } | null {
-  let best: { username: string; stats: ReviewerStats } | null = null;
-
-  for (const [username, s] of stats) {
-    if (!best) {
-      best = { username, stats: s };
-      continue;
-    }
-    const val = metric(s);
-    const bestVal = metric(best.stats);
-    if (val > bestVal) {
-      best = { username, stats: s };
-    } else if (val === bestVal) {
-      const tb = tiebreak(s);
-      const bestTb = tiebreak(best.stats);
-      if (tb > bestTb || (tb === bestTb && username < best.username)) {
-        best = { username, stats: s };
-      }
-    }
-  }
-
-  return best;
+  const sorted = rankBy(stats, metric, tiebreak);
+  return sorted.length > 0 ? sorted[0] : null;
 }
 
 // ── Message Formatting ─────────────────────────────────────
@@ -301,13 +299,13 @@ export function formatMessage(
 ): string {
   const dateRange = formatDateRange(since, until);
 
-  const topReviewer = pickWinner(
+  const topReviewers = rankBy(
     global,
     (s) => s.prsReviewed.size,
     (s) => s.commentCount,
-  );
+  ).slice(0, 3);
 
-  const topCommenter = pickWinner(
+  const mostComments = pickWinner(
     global,
     (s) => s.commentCount,
     (s) => s.commentPrs.size,
@@ -320,28 +318,33 @@ export function formatMessage(
   );
 
   // Check if there's any activity at all
-  if (!topReviewer && !topCommenter && !heavyLifter) {
+  if (topReviewers.length === 0 && !mostComments && !heavyLifter) {
     return `:desert_island: *Weekly PR Review Awards — Week of ${dateRange}*\n\n` +
       `It was a quiet week — no PR reviews to report. Enjoy the downtime!`;
   }
 
+  const medals = [':first_place_medal:', ':second_place_medal:', ':third_place_medal:'];
   const lines: string[] = [
     `:trophy: *Weekly PR Review Awards — Week of ${dateRange}*\n`,
   ];
 
-  if (topReviewer) {
-    const s = topReviewer.stats;
-    lines.push(`:star: *Top Reviewer:* ${slackMention(topReviewer.username)} (${s.prsReviewed.size} PRs reviewed)`);
-  }
-
-  if (topCommenter) {
-    const s = topCommenter.stats;
-    lines.push(`:speech_balloon: *Top Commenter:* ${slackMention(topCommenter.username)} (${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs)`);
+  if (topReviewers.length > 0) {
+    lines.push(`:star: *Top Reviewers:*`);
+    for (let i = 0; i < topReviewers.length; i++) {
+      const { username, stats: s } = topReviewers[i];
+      lines.push(`${medals[i]} ${slackMention(username)} — ${s.prsReviewed.size} PRs reviewed`);
+    }
   }
 
   if (heavyLifter) {
+    lines.push('');
     const s = heavyLifter.stats;
     lines.push(`:weight_lifter: *Heavy Lifter:* ${slackMention(heavyLifter.username)} (${formatNumber(s.linesReviewed)} lines reviewed across ${s.linesPrs.size} PRs)`);
+  }
+
+  if (mostComments) {
+    const s = mostComments.stats;
+    lines.push(`:speech_balloon: *Most Comments:* ${slackMention(mostComments.username)} (${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs)`);
   }
 
   lines.push('');

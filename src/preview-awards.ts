@@ -6,6 +6,7 @@ import {
   formatMessage,
   formatNumber,
   formatDateRange,
+  rankBy,
   ReviewerStats,
   RepoStats,
 } from './weekly-awards';
@@ -73,25 +74,38 @@ async function main() {
   // Full leaderboard
   console.log(`\n=== PR Review Leaderboard — Week of ${dateRange} ===\n`);
 
-  printLeaderboard(
-    'Top Reviewer (PRs reviewed)',
+  // Top 3 Reviewers
+  const topReviewers = rankBy(
     global,
     (s) => s.prsReviewed.size,
-    (s) => `${s.prsReviewed.size} PRs reviewed`,
-  );
-
-  printLeaderboard(
-    'Top Commenter (review comments)',
-    global,
     (s) => s.commentCount,
-    (s) => `${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs`,
-  );
+  ).slice(0, 3);
 
+  console.log(`  Top Reviewers (PRs reviewed):`);
+  if (topReviewers.length === 0) {
+    console.log('    (no activity)');
+  } else {
+    topReviewers.forEach(({ username, stats: s }, i) => {
+      const marker = i === 0 ? '>>>' : '   ';
+      console.log(`    ${marker} ${i + 1}. @${username} — ${s.prsReviewed.size} PRs reviewed`);
+    });
+  }
+  console.log('');
+
+  // Heavy Lifter (single award)
   printLeaderboard(
     'Heavy Lifter (lines reviewed)',
     global,
     (s) => s.linesReviewed,
     (s) => `${formatNumber(s.linesReviewed)} lines across ${s.linesPrs.size} PRs`,
+  );
+
+  // Most Comments (single award)
+  printLeaderboard(
+    'Most Comments (review comments)',
+    global,
+    (s) => s.commentCount,
+    (s) => `${formatNumber(s.commentCount)} comments across ${s.commentPrs.size} PRs`,
   );
 
   console.log(`  Team Stats: ${formatNumber(totalMerged)} PRs merged, ${formatNumber(totalComments)} review comments`);

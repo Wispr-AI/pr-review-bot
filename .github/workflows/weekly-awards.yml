@@ -2,8 +2,8 @@ name: Weekly PR Awards
 
 on:
   schedule:
-    # Saturday 02:00 UTC = Friday 6 PM PST / Friday 7 PM PDT
-    - cron: '0 2 * * 6'
+    # Saturday 01:00 UTC = Friday 5 PM PST / Friday 6 PM PDT
+    - cron: '0 1 * * 6'
   workflow_dispatch:
     inputs:
       dry-run:
